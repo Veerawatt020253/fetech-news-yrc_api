@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from student import router as student_router
+from canteen import router as canteen_router
 
 BASE_URL = "https://www.yupparaj.ac.th/"
 LIST_URL = urljoin(BASE_URL, "news-total.php")
@@ -39,6 +40,7 @@ app.add_middleware(
 )
 
 app.include_router(student_router)
+app.include_router(canteen_router)
 
 _cache: dict[str, tuple[float, Any]] = {}
 
@@ -175,6 +177,8 @@ def root():
             "POST /student/login": "ตรวจรหัส + โปรไฟล์นักเรียน (body: username, password)",
             "POST /student/data": "ดึงข้อมูลนักเรียนตามหมวด (body: username, password, sections?)",
             "GET /student/sections": "รายชื่อหมวดข้อมูลที่ดึงได้",
+            "POST /canteen/balance": "ยอดเงินในบัตรโรงอาหาร (body: username, password)",
+            "POST /canteen/history": "ยอดเงิน + ประวัติการใช้จ่ายทั้งหมด (body: username, password)",
             "GET /health": "สถานะ",
             "GET /docs": "เอกสาร Swagger",
         },

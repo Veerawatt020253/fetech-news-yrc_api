@@ -24,6 +24,8 @@ uvicorn app:app --reload --port 8000
 | POST | `/student/login` | ตรวจรหัส + ดึงโปรไฟล์นักเรียน |
 | POST | `/student/data` | ดึงข้อมูลนักเรียนตามหมวดที่เลือก |
 | GET | `/student/sections` | รายชื่อหมวดข้อมูลที่ดึงได้ |
+| POST | `/canteen/balance` | ยอดเงินในบัตรโรงอาหาร |
+| POST | `/canteen/history` | ยอดเงิน + ประวัติการใช้จ่ายทั้งหมด |
 | GET | `/health` | เช็คสถานะ |
 | GET | `/docs` | Swagger UI |
 
@@ -147,6 +149,57 @@ curl -X POST http://127.0.0.1:8000/student/data \
 หมวด `behavior` จะยิงรายงานแบบ `all_time` ให้เอง คืนคะแนนที่ถูกหักทุกครั้ง
 (วันที่ + พฤติกรรม + ระดับ + คะแนน) พร้อมสรุป `carried_points` / `deducted_points` /
 `remaining_points` / `rating` — เริ่มต้นทุกคนที่ 100 คะแนน
+
+## Canteen API
+
+ดึงยอดเงินในบัตรและประวัติการใช้จ่ายจากระบบโรงอาหาร https://canteen.yupparaj.ac.th
+ล็อกอินด้วยรหัสเดียวกับพอร์ทัลนักเรียน (`user_type` เริ่มต้น `student`)
+รหัสส่งใน body ของ POST เท่านั้น และไม่ถูกเก็บไว้ (ล็อกอินสดทุกครั้งแล้วปิด session)
+
+### `POST /canteen/balance`
+
+```bash
+curl -X POST http://127.0.0.1:8000/canteen/balance \
+  -H "Content-Type: application/json" \
+  -d '{"username":"53421","password":"53421"}'
+```
+
+```json
+{
+  "ok": true,
+  "account": { "name": "นาย...", "card_id": "0006607592", "balance": 600.0 }
+}
+```
+
+### `POST /canteen/history`
+
+ดึงประวัติทั้งหมด ใส่ `start_date`/`end_date` (YYYY-MM-DD) เพื่อกรองช่วงวันที่ได้
+
+```bash
+curl -X POST http://127.0.0.1:8000/canteen/history \
+  -H "Content-Type: application/json" \
+  -d '{"username":"53421","password":"53421"}'
+```
+
+```json
+{
+  "account": { "name": "นาย...", "card_id": "0006607592", "balance": 600.0 },
+  "summary": {
+    "balance": 600.0, "total_topup": 0.0, "total_spent": 185.0,
+    "total_refund": 0.0, "count": 6
+  },
+  "transactions": [
+    {
+      "type": "ซื้อสินค้า", "vendor": "แม่น้ำ",
+      "datetime": "02/09/2026 12:19", "datetime_iso": "2026-09-02T12:19",
+      "amount": -35.0, "balance_after": 600.0
+    }
+  ]
+}
+```
+
+- `amount` เป็นบวก = เติมเงิน, ลบ = ใช้จ่าย (หน่วยบาท)
+- `datetime` ของโรงอาหารเป็น ค.ศ. อยู่แล้ว (`DD/MM/YYYY HH:MM`), `datetime_iso` แปลงเป็น ISO
 
 ## หมายเหตุ
 
