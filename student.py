@@ -10,6 +10,7 @@ YRC Student Portal API — ล็อกอินเข้า https://portal.yupp
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
 
 import httpx
@@ -21,8 +22,35 @@ BASE_URL = "https://portal.yupparaj.ac.th/"
 LOGIN_URL = BASE_URL + "login.php"
 LOGIN_HANDLER = BASE_URL + "app/login_handler.php"
 INDEX_URL = BASE_URL + "index.php"
-HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; YRCLifeStudentAPI/1.0)"}
+
+# เว็บอยู่หลัง Cloudflare — ใช้ header เหมือนเบราว์เซอร์จริง ลดโอกาสโดนบล็อก
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "th,en;q=0.9",
+    "Upgrade-Insecure-Requests": "1",
+}
 TIMEOUT = 25.0
+
+# status ที่ถือว่า "ชั่วคราว" (มักมาจาก Cloudflare) แล้วลองใหม่
+RETRY_STATUS = {403, 429, 500, 502, 503, 520, 521, 522, 524}
+MAX_RETRIES = 3
+
+
+def _request(client: httpx.Client, method: str, url: str, **kw) -> httpx.Response:
+    """ยิง request พร้อม retry แบบ backoff เมื่อเจอ status ชั่วคราวของ Cloudflare"""
+    last: httpx.Response | None = None
+    for attempt in range(MAX_RETRIES):
+        r = client.request(method, url, **kw)
+        if r.status_code not in RETRY_STATUS:
+            return r
+        last = r
+        if attempt < MAX_RETRIES - 1:
+            time.sleep(0.8 * (attempt + 1))
+    return last  # ครบจำนวนครั้งแล้วยังไม่ผ่าน คืนตัวสุดท้ายให้ผู้เรียกจัดการ
 
 # ค่าที่ถือว่า "ยังไม่ได้เลือก/ว่าง" ใน dropdown ของพอร์ทัล -> แปลงเป็น None
 PLACEHOLDERS = {
@@ -87,13 +115,15 @@ def login(username: str, password: str) -> httpx.Client:
     """
     client = httpx.Client(headers=HEADERS, timeout=TIMEOUT, follow_redirects=True)
     try:
-        page = client.get(LOGIN_URL)
+        page = _request(client, "GET", LOGIN_URL)
         page.raise_for_status()
         token_el = BeautifulSoup(page.text, "html.parser").select_one('input[name="csrf_token"]')
         if token_el is None or not token_el.get("value"):
             raise HTTPException(status_code=502, detail="หาช่อง csrf_token ในหน้า login ไม่เจอ (เว็บอาจเปลี่ยนโครงสร้าง)")
 
-        resp = client.post(
+        resp = _request(
+            client,
+            "POST",
             LOGIN_HANDLER,
             data={
                 "username": username,
@@ -103,6 +133,13 @@ def login(username: str, password: str) -> httpx.Client:
             },
         )
         resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        client.close()
+        raise HTTPException(
+            status_code=502,
+            detail=f"พอร์ทัลตอบกลับผิดพลาด ({e.response.status_code}) — "
+                   "อาจโดน Cloudflare บล็อกชั่วคราว ลองใหม่อีกครั้ง",
+        ) from e
     except httpx.HTTPError as e:
         client.close()
         raise HTTPException(status_code=502, detail=f"เชื่อมต่อพอร์ทัลไม่สำเร็จ: {e}") from e
@@ -117,7 +154,7 @@ def login(username: str, password: str) -> httpx.Client:
 
 def _get_soup(client: httpx.Client, url: str) -> BeautifulSoup:
     try:
-        r = client.get(url)
+        r = _request(client, "GET", url)
         r.raise_for_status()
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"ดึงหน้า {url} ไม่สำเร็จ: {e}") from e
@@ -299,7 +336,7 @@ def read_behavior(client: httpx.Client) -> dict[str, Any]:
     payload["SearchCheck"] = ""
 
     try:
-        r = client.post(url, data=payload)
+        r = _request(client, "POST", url, data=payload)
         r.raise_for_status()
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"ดึงรายงานพฤติกรรมไม่สำเร็จ: {e}") from e
