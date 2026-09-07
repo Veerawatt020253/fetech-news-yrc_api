@@ -18,6 +18,8 @@ from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from student import router as student_router
+
 BASE_URL = "https://www.yupparaj.ac.th/"
 LIST_URL = urljoin(BASE_URL, "news-total.php")
 DETAIL_URL = urljoin(BASE_URL, "news_detail.php")
@@ -32,9 +34,11 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+app.include_router(student_router)
 
 _cache: dict[str, tuple[float, Any]] = {}
 
@@ -168,6 +172,9 @@ def root():
         "endpoints": {
             "GET /news": "รายการข่าว (query: limit, offset, q)",
             "GET /news/{id}": "รายละเอียดข่าว 1 รายการ",
+            "POST /student/login": "ตรวจรหัส + โปรไฟล์นักเรียน (body: username, password)",
+            "POST /student/data": "ดึงข้อมูลนักเรียนตามหมวด (body: username, password, sections?)",
+            "GET /student/sections": "รายชื่อหมวดข้อมูลที่ดึงได้",
             "GET /health": "สถานะ",
             "GET /docs": "เอกสาร Swagger",
         },
